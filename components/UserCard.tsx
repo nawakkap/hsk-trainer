@@ -62,6 +62,16 @@ export function UserCard({
         </div>
       </Link>
 
+      <div className="mt-3 pt-3 border-t border-black/5 dark:border-white/10 flex items-center justify-between">
+        <Link
+          href={`/pinyin/${user.id}`}
+          className="text-sm font-semibold opacity-80 hover:opacity-100 flex items-center gap-1.5"
+        >
+          <span>🎵</span> Pinyin practice
+        </Link>
+        <span className="text-xs opacity-50">+stars, no streak</span>
+      </div>
+
       <button
         onClick={onMenu}
         aria-label="User options"
