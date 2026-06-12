@@ -40,19 +40,26 @@ export function NewUserModal({
         />
 
         <label className="block text-xs uppercase tracking-widest opacity-60 mb-2">Level</label>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {(["hsk1", "hsk3"] as const).map((l) => (
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {(
+            [
+              { id: "hsk1", label: "HSK 1", emoji: "🐣" },
+              { id: "hsk2", label: "HSK 2", emoji: "🐼" },
+              { id: "hsk3", label: "HSK 3", emoji: "🐉" },
+            ] as const
+          ).map((l) => (
             <button
-              key={l}
-              onClick={() => setLevel(l)}
+              key={l.id}
+              onClick={() => setLevel(l.id)}
               className={[
-                "py-3 rounded-2xl text-base font-bold ring-2 transition",
-                level === l
+                "py-3 rounded-2xl text-sm font-bold ring-2 transition flex flex-col items-center gap-0.5",
+                level === l.id
                   ? "ring-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
                   : "ring-transparent bg-black/5 dark:bg-white/10 opacity-70",
               ].join(" ")}
             >
-              {l === "hsk1" ? "🐣 HSK 1" : "🐉 HSK 3"}
+              <span className="text-xl leading-none">{l.emoji}</span>
+              <span>{l.label}</span>
             </button>
           ))}
         </div>
