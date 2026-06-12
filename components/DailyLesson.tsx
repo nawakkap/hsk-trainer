@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Flashcard } from "./Flashcard";
 import { Exercise } from "./Exercise";
 import { SentenceCard } from "./SentenceCard";
 import { Confetti } from "./Confetti";
 import { buildExercises, pickLesson, reviewVocab, totalLessons, type ExerciseStep } from "@/lib/lesson";
-import type { Curriculum, Vocab } from "@/lib/curriculum/types";
-import { loadProfiles, updateProfile, type Profile } from "@/lib/storage";
+import { curricula } from "@/lib/curriculum";
+import type { Vocab } from "@/lib/curriculum/types";
+import { getUser, loadState, updateUser, type User } from "@/lib/storage";
 import { newlyUnlockedBadges, nextStreak, todayKey, type Badge } from "@/lib/rewards";
 import { primeVoices, speakChinese } from "@/lib/speech";
 
@@ -17,8 +19,10 @@ type Stage = "welcome" | "review" | "learn" | "exercise" | "sentence" | "done";
 const REWARD_PER_CORRECT = 1;
 const PERFECT_BONUS = 5;
 
-export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
-  const [profile, setProfile] = useState<Profile | null>(null);
+export function DailyLesson({ userId }: { userId: string }) {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [stage, setStage] = useState<Stage>("welcome");
   const [reviewIdx, setReviewIdx] = useState(0);
   const [learnIdx, setLearnIdx] = useState(0);
@@ -35,16 +39,21 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
 
   useEffect(() => {
     primeVoices();
-    setProfile(loadProfiles()[curriculum.level]);
-  }, [curriculum.level]);
+    const state = loadState();
+    const u = getUser(state, userId);
+    if (!u) setNotFound(true);
+    else setUser(u);
+  }, [userId]);
+
+  const curriculum = user ? curricula[user.level] : curricula.hsk1;
 
   const lesson = useMemo(
-    () => (profile ? pickLesson(curriculum, profile.currentLesson) : curriculum.lessons[0]),
-    [profile, curriculum],
+    () => (user ? pickLesson(curriculum, user.currentLesson) : curriculum.lessons[0]),
+    [user, curriculum],
   );
   const review = useMemo(
-    () => (profile ? reviewVocab(curriculum, profile.currentLesson) : []),
-    [profile, curriculum],
+    () => (user ? reviewVocab(curriculum, user.currentLesson) : []),
+    [user, curriculum],
   );
   const allVocabPool = useMemo<Vocab[]>(
     () => curriculum.lessons.flatMap((l) => l.vocab),
@@ -55,34 +64,45 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
     [lesson, allVocabPool],
   );
 
-  if (!profile) {
+  if (notFound) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="text-5xl">🤔</div>
+        <p className="opacity-70">That learner doesn't exist on this device.</p>
+        <button
+          onClick={() => router.replace("/")}
+          className="px-5 py-3 rounded-2xl bg-[var(--primary)] text-white font-bold"
+        >
+          Back home
+        </button>
+      </div>
+    );
+  }
+
+  if (!user) {
     return <div className="flex-1 flex items-center justify-center text-2xl">加载中…</div>;
   }
 
   const total = totalLessons(curriculum);
-  const totalSteps =
-    review.length + lesson.vocab.length + exercises.length + 1; // +1 for sentence
+  const totalSteps = review.length + lesson.vocab.length + exercises.length + 1;
   const currentStep =
     (stage === "review" ? reviewIdx : review.length) +
     (stage === "learn" ? learnIdx : stage === "welcome" ? 0 : lesson.vocab.length) +
     (stage === "exercise" ? exIdx : stage === "sentence" || stage === "done" ? exercises.length : 0) +
     (stage === "done" ? 1 : 0);
-  const progressPct = Math.round(((currentStep + (stage === "welcome" ? 0 : 0)) / totalSteps) * 100);
+  const progressPct = Math.round((currentStep / totalSteps) * 100);
 
   function startLesson() {
     setStage(review.length > 0 ? "review" : "learn");
   }
-
   function advanceReview() {
     if (reviewIdx + 1 < review.length) setReviewIdx(reviewIdx + 1);
     else setStage("learn");
   }
-
   function advanceLearn() {
     if (learnIdx + 1 < lesson.vocab.length) setLearnIdx(learnIdx + 1);
     else setStage("exercise");
   }
-
   function answerExercise(correct: boolean) {
     setTotalAnswered((n) => n + 1);
     if (correct) setCorrectCount((n) => n + 1);
@@ -91,15 +111,15 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
   }
 
   function finishLesson() {
-    if (completedRef.current || !profile) return;
+    if (completedRef.current || !user) return;
     completedRef.current = true;
     const today = todayKey();
     const earned =
       correctCount * REWARD_PER_CORRECT + (correctCount === totalAnswered ? PERFECT_BONUS : 0);
-    let nextStreakVal = profile.streak;
+    let nextStreakVal = user.streak;
     let unlocked: Badge[] = [];
 
-    const updated = updateProfile(curriculum.level, (p) => {
+    const next = updateUser(user.id, (p) => {
       const ns = nextStreak(p.lastCompletedDate, p.streak, today);
       nextStreakVal = ns;
       const longest = Math.max(p.longestStreak, ns);
@@ -119,7 +139,8 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
         badges: nextBadges,
       };
     });
-    setProfile(updated[curriculum.level]);
+    const updated = next.users.find((u) => u.id === user.id);
+    if (updated) setUser(updated);
     setReward({
       stars: earned,
       perfect: correctCount === totalAnswered,
@@ -132,11 +153,14 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
   return (
     <div className="flex-1 w-full max-w-md mx-auto px-5 py-5 flex flex-col gap-5">
       <header className="flex items-center justify-between">
-        <Link href="/" className="text-sm opacity-60 hover:opacity-100">← Back</Link>
-        <div className="text-sm font-semibold opacity-80">
-          {curriculum.label} · Lesson {profile.currentLesson} / {total}
+        <Link href="/" className="text-sm opacity-60 hover:opacity-100">← Switch</Link>
+        <div className="text-sm font-semibold opacity-80 flex items-center gap-1.5">
+          <span>{user.avatar}</span>
+          <span className="truncate max-w-[160px]">{user.name}</span>
+          <span className="opacity-50">·</span>
+          <span>{curriculum.label}</span>
         </div>
-        <div className="text-sm font-semibold">🔥 {profile.streak}</div>
+        <div className="text-sm font-semibold">🔥 {user.streak}</div>
       </header>
 
       {stage !== "welcome" && stage !== "done" && (
@@ -151,8 +175,10 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
       <div className="flex-1 flex flex-col items-center justify-center">
         {stage === "welcome" && (
           <Welcome
-            curriculum={curriculum}
+            avatar={user.avatar}
             lessonTitle={lesson.title}
+            lessonNum={user.currentLesson}
+            total={total}
             wordCount={lesson.vocab.length}
             onStart={startLesson}
             onPlayPreview={() => speakChinese(lesson.vocab[0].hanzi)}
@@ -186,40 +212,38 @@ export function DailyLesson({ curriculum }: { curriculum: Curriculum }) {
           </div>
         )}
 
-        {stage === "sentence" && (
-          <SentenceCard {...lesson.sentence} onNext={finishLesson} />
-        )}
+        {stage === "sentence" && <SentenceCard {...lesson.sentence} onNext={finishLesson} />}
 
-        {stage === "done" && reward && (
-          <Reward reward={reward} curriculum={curriculum} />
-        )}
+        {stage === "done" && reward && <Reward reward={reward} userName={user.name} />}
       </div>
     </div>
   );
 }
 
 function Welcome({
-  curriculum,
+  avatar,
   lessonTitle,
+  lessonNum,
+  total,
   wordCount,
   onStart,
   onPlayPreview,
 }: {
-  curriculum: Curriculum;
+  avatar: string;
   lessonTitle: string;
+  lessonNum: number;
+  total: number;
   wordCount: number;
   onStart: () => void;
   onPlayPreview: () => void;
 }) {
   return (
     <div className="text-center flex flex-col items-center gap-6">
-      <div className="text-7xl">{curriculum.emoji}</div>
+      <div className="text-7xl">{avatar}</div>
       <div>
-        <div className="text-xs uppercase tracking-widest opacity-50">Today's lesson</div>
+        <div className="text-xs uppercase tracking-widest opacity-50">Lesson {lessonNum} of {total}</div>
         <h1 className="text-3xl font-extrabold mt-1">{lessonTitle}</h1>
-        <div className="text-sm opacity-70 mt-2">
-          {wordCount} new words · about 15 minutes
-        </div>
+        <div className="text-sm opacity-70 mt-2">{wordCount} new words · about 15 minutes</div>
       </div>
       <button
         onClick={onPlayPreview}
@@ -239,17 +263,19 @@ function Welcome({
 
 function Reward({
   reward,
-  curriculum,
+  userName,
 }: {
   reward: { stars: number; perfect: boolean; streak: number; newBadges: Badge[] };
-  curriculum: Curriculum;
+  userName: string;
 }) {
   return (
     <div className="text-center flex flex-col items-center gap-5 w-full relative">
       <Confetti />
       <div className="text-7xl animate-pop">🎉</div>
       <div>
-        <h2 className="text-3xl font-extrabold">{reward.perfect ? "Perfect!" : "Well done!"}</h2>
+        <h2 className="text-3xl font-extrabold">
+          {reward.perfect ? "Perfect, " : "Well done, "}{userName}!
+        </h2>
         <p className="opacity-70 mt-1">
           {reward.perfect ? "Every answer correct — bonus stars!" : "Lesson complete. Keep it up!"}
         </p>
@@ -286,12 +312,6 @@ function Reward({
         className="w-full py-4 rounded-2xl bg-[var(--primary)] text-white text-lg font-bold shadow-lg shadow-[var(--primary)]/30 mt-2 text-center"
       >
         Back home
-      </Link>
-      <Link
-        href={`/learn/${curriculum.level}`}
-        className="text-sm opacity-60 hover:opacity-100"
-      >
-        Practice another lesson →
       </Link>
     </div>
   );
