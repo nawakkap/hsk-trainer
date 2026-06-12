@@ -11,7 +11,7 @@ export type Lesson = {
   sentence: { hanzi: string; pinyin: string; meaning: string };
 };
 
-export type Level = "hsk1" | "hsk3";
+export type Level = "hsk1" | "hsk2" | "hsk3";
 
 export type Curriculum = {
   level: Level;

@@ -1,9 +1,11 @@
 import { hsk1 } from "./hsk1";
+import { hsk2 } from "./hsk2";
 import { hsk3 } from "./hsk3";
 import type { Curriculum, Level } from "./types";
 
 export const curricula: Record<Level, Curriculum> = {
   hsk1,
+  hsk2,
   hsk3,
 };
 
